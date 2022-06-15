@@ -15,22 +15,16 @@ int do_notify(void) {
     struct vnode *file_ptr = get_vnode(m_in.m_lc_vfs_notify.fd);
     struct notify_wait *np;
 
-    if (file_ptr == NULL) {
-        printf("nie da sie uzyskac wskaznika do tego pliku\n");
-        return EBADF;
-    }
-    if (m_in.m_lc_vfs_notify.event != NOTIFY_OPEN) {
-        // na razie tylko open obsługujemy
-        printf("zly deskryptor eventu\n");
-        return EINVAL;
-    }
-    // na razie olejemy ENOTDIR
     if (NR_WAITING_FOR_NOTIFY >= NR_NOTIFY) {
-        printf("za duzo procesow czeka\n");
         return ENONOTIFY;
     }
+    else if (file_ptr == NULL) {
+        return EBADF;
+    }
+    else if (m_in.m_lc_vfs_notify.event != NOTIFY_OPEN) {
+        return EINVAL;
+    }
 
-    printf("%d\n", ENONOTIFY);
 
     for (np = &notify_wait[0]; np < &notify_wait[NR_NOTIFY]; np++) {
         if (np->notify_event == 0) {

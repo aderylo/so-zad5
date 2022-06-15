@@ -31,6 +31,8 @@
 #include <minix/vfsif.h>
 #include "vnode.h"
 #include "vmnt.h"
+#include "notify.h"
+#include <stdio.h>
 
 static int create_pipe(int fil_des[2], int flags);
 
@@ -505,6 +507,7 @@ void unpause(void)
   struct filp *f;
   dev_t dev;
   int wasreviving = 0;
+  struct notify_wait *np;
 
   if (!fp_is_blocked(fp)) return;
   blocked_on = fp->fp_blocked_on;
@@ -543,6 +546,17 @@ void unpause(void)
 
 	case FP_BLOCKED_ON_POPEN:	/* process trying to open a fifo */
 		break;
+
+    case FP_BLOCKED_ON_NOTIFY:	/* process blocking on notify */
+          for (np = &notify_wait[0]; np < &notify_wait[NR_NOTIFY]; np++) {
+              if(np->notify_proc == fp){
+                  np->notify_event = 0;
+                  np->notify_vnode = NULL;
+                  np->notify_proc = NULL;
+                  NR_WAITING_FOR_NOTIFY--;
+              }
+          }
+        break;
 
 	case FP_BLOCKED_ON_OTHER:/* process trying to do device I/O (e.g. tty)*/
 		fild = scratch(fp).file.fd_nr;

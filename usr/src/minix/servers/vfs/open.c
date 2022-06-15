@@ -144,9 +144,14 @@ int common_open(char path[PATH_MAX], int oflags, mode_t omode)
     /* notify proc which waits for OPEN event; */
     struct notify_wait *np;
     for (np = &notify_wait[0]; np < &notify_wait[NR_NOTIFY]; np++) {
-        if (np->notify_event != NOTIFY_OPEN) continue;
-        if(np->notify_vnode == vp){
+        if(!np) continue;
+        if (np && np->notify_event != NOTIFY_OPEN) continue;
+        if(np->notify_vnode == vp && np->notify_proc){
             revive(np->notify_proc->fp_endpoint, 0);
+            np->notify_event = 0;
+            np->notify_vnode = 0;
+            np->notify_proc = 0;
+            NR_WAITING_FOR_NOTIFY--;
         }
     }
 
