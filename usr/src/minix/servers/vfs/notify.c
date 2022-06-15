@@ -6,6 +6,8 @@
 
 struct vnode *get_vnode(int fd) {
     struct filp *filp = get_filp(fd, VNODE_READ);
+    if(!filp)
+        return NULL;
     struct vnode *vp = filp->filp_vno;
     unlock_filp(filp);
     return vp;
