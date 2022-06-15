@@ -1,34 +1,48 @@
 #include "fs.h"
-#include "vnode.h"
+#include "sys/fcntl.h"
 #include "file.h"
-#include <fcntl.h>
+#include "vnode.h"
 #include <stdio.h>
 
+struct vnode *get_vnode(int fd) {
+    struct filp *filp = get_filp(fd, VNODE_READ);
+    struct vnode *vp = filp->filp_vno;
+    unlock_filp(filp);
+    return vp;
+}
+
 int do_notify(void) {
-//    struct fproc *caller = fp;
-    struct filp *f;
-    register struct vnode *vp;
+    struct vnode *file_ptr = get_vnode(m_in.m_lc_vfs_notify.fd);
+    struct notify_wait *np;
 
-    // got that from do_utimens
-    if ((f = get_filp(job_m_in.m_lc_vfs_notify.fd, VNODE_READ)) == NULL)
-        return (err_code);
-    vp = f->filp_vno;        /* get vnode pointer */
-    // there is some not explicitly stated lock on vnode as well as flip
-    // look for unlock_flip(flip)
-
-    printf("dupa\n");
-    printf("%d", job_m_in.m_lc_vfs_notify.event);
-
-    switch (job_m_in.m_lc_vfs_notify.event) {
-        case NOTIFY_OPEN:
-            suspend(FP_BLOCKED_ON_LOCK);
-            break;
-        default:
-            // throw error
-            break;
+    if (file_ptr == NULL) {
+        printf("nie da sie uzyskac wskaznika do tego pliku\n");
+        return EBADF;
+    }
+    if (m_in.m_lc_vfs_notify.event != NOTIFY_OPEN) {
+        // na razie tylko open obsługujemy
+        printf("zly deskryptor eventu\n");
+        return EINVAL;
+    }
+    // na razie olejemy ENOTDIR
+    if (NR_WAITING_FOR_NOTIFY >= NR_NOTIFY) {
+        printf("za duzo procesow czeka\n");
+        return ENONOTIFY;
     }
 
+    printf("%d\n", ENONOTIFY);
 
-    return (SUSPEND);
-//	return(ENOSYS);  // TODO: implementacja VFS_NOTIFY
+    for (np = &notify_wait[0]; np < &notify_wait[NR_NOTIFY]; np++) {
+        if (np->notify_event == 0) {
+            np->notify_proc = fp;
+            np->notify_vnode = file_ptr;
+            np->notify_event = job_m_in.m_lc_vfs_notify.event;
+            NR_WAITING_FOR_NOTIFY++;
+            break;
+        }
+    }
+
+    suspend(FP_BLOCKED_ON_NOTIFY);
+    return SUSPEND;
+    return OK;
 }

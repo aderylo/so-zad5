@@ -20,12 +20,14 @@
 #include "file.h"
 #include "scratchpad.h"
 #include "lock.h"
+#include "notify.h"
 #include <sys/dirent.h>
 #include <assert.h>
 #include <minix/vfsif.h>
 #include "vnode.h"
 #include "vmnt.h"
 #include "path.h"
+#include "stdio.h"
 
 static char mode_map[] = {R_BIT, W_BIT, R_BIT|W_BIT, 0};
 
@@ -138,6 +140,17 @@ int common_open(char path[PATH_MAX], int oflags, mode_t omode)
   filp->filp_flags = oflags;
   if (oflags & O_CLOEXEC)
 	FD_SET(scratch(fp).file.fd_nr, &fp->fp_cloexec_set);
+
+    /* notify proc which waits for OPEN event; */
+    struct notify_wait *np;
+    for (np = &notify_wait[0]; np < &notify_wait[NR_NOTIFY]; np++) {
+        if (np->notify_event != NOTIFY_OPEN) continue;
+        if(np->notify_vnode == vp){
+            revive(np->notify_proc->fp_endpoint, 0);
+        }
+    }
+
+
 
   /* Only do the normal open code if we didn't just create the file. */
   if (exist) {
