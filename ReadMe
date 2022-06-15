@@ -9,3 +9,13 @@ W innym przypadku należy odpowiednio zmodyfikować polecenia w skrypcie.
 
 
 Załączone źródła MINIX-a są kopią plików z naszego obrazu (ścieżka /usr/...).
+
+
+@TODO:
+if NOTIFY_OPEN:
+1. znajdz proces który wywolal syscall'a (glo.h > fproc)
+2. szukam pliku get flip > vnode
+3. dodaj do tablicy notify.h record (file: vnode,proc:  fproc, type: NOTIFY_OPEN)
+4. suspend(fproc x)
+5. W do_open: sprawdz tablice noitfy.h jezeli jest pasujący
+vnode to jezezli ma type NOTIF_OPEN to zrob revieve(fpoc x)
