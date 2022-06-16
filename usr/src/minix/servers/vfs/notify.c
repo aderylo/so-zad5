@@ -6,7 +6,7 @@
 
 struct vnode *get_vnode(int fd) {
     struct filp *filp = get_filp(fd, VNODE_READ);
-    if(!filp)
+    if (!filp)
         return NULL;
     struct vnode *vp = filp->filp_vno;
     unlock_filp(filp);
@@ -17,14 +17,20 @@ int do_notify(void) {
     struct vnode *file_ptr = get_vnode(m_in.m_lc_vfs_notify.fd);
     struct notify_wait *np;
 
-    if (NR_WAITING_FOR_NOTIFY >= NR_NOTIFY) {
+    if (NR_WAITING_FOR_NOTIFY >= NR_NOTIFY)
         return ENONOTIFY;
-    }
-    else if (file_ptr == NULL) {
+    else if (file_ptr == NULL)
         return EBADF;
-    }
-    else if (m_in.m_lc_vfs_notify.event != NOTIFY_OPEN) {
-        return EINVAL;
+
+    switch (m_in.m_lc_vfs_notify.event) {
+        case NOTIFY_OPEN:
+            break;
+        case NOTIFY_TRIOPEN:
+            if (file_ptr->v_ref_count >= 3)
+                return OK;
+            break;
+        default:
+            return EINVAL;
     }
 
 

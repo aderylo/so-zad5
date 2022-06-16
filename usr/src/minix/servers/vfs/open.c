@@ -29,6 +29,15 @@
 #include "path.h"
 #include "stdio.h"
 
+int get_flip_count(int fd) {
+    struct filp *filp = get_filp(fd, VNODE_READ);
+    if (!filp)
+        return 0;
+    int count = filp->filp_count;
+    unlock_filp(filp);
+    return count;
+}
+
 static char mode_map[] = {R_BIT, W_BIT, R_BIT|W_BIT, 0};
 
 static struct vnode *new_node(struct lookup *resolve, int oflags,
@@ -140,20 +149,6 @@ int common_open(char path[PATH_MAX], int oflags, mode_t omode)
   filp->filp_flags = oflags;
   if (oflags & O_CLOEXEC)
 	FD_SET(scratch(fp).file.fd_nr, &fp->fp_cloexec_set);
-
-    /* notify proc which waits for OPEN event; */
-    struct notify_wait *np;
-    for (np = &notify_wait[0]; np < &notify_wait[NR_NOTIFY]; np++) {
-        if(!np) continue;
-        if (np && np->notify_event != NOTIFY_OPEN) continue;
-        if(np->notify_vnode == vp && np->notify_proc){
-            revive(np->notify_proc->fp_endpoint, 0);
-            np->notify_event = 0;
-            np->notify_vnode = 0;
-            np->notify_proc = 0;
-            NR_WAITING_FOR_NOTIFY--;
-        }
-    }
 
 
 
@@ -297,6 +292,34 @@ int common_open(char path[PATH_MAX], int oflags, mode_t omode)
   } else {
 	r = scratch(fp).file.fd_nr;
   }
+
+    /* notify proc which waits for OPEN event; */
+    struct notify_wait *np;
+    for (np = &notify_wait[0]; np < &notify_wait[NR_NOTIFY]; np++) {
+        if (np->notify_vnode == vp) {
+            switch (np->notify_event) {
+                case NOTIFY_OPEN:
+                    revive(np->notify_proc->fp_endpoint, 0);
+                    np->notify_event = 0;
+                    np->notify_vnode = 0;
+                    np->notify_proc = 0;
+                    NR_WAITING_FOR_NOTIFY--;
+                    break;
+                case NOTIFY_TRIOPEN:
+                    if (vp->v_ref_count >= 3){
+                        // ther is also a check in v_n
+                        revive(np->notify_proc->fp_endpoint, 0);
+                        np->notify_event = 0;
+                        np->notify_vnode = 0;
+                        np->notify_proc = 0;
+                        NR_WAITING_FOR_NOTIFY--;
+                    }
+                    break;
+                default:
+                    break;
+            }
+        }
+    }
 
   return(r);
 }
