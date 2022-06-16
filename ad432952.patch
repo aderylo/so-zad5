@@ -1,5 +1,5 @@
 diff --color -rupNEZbB minix_source/usr/src/minix/include/minix/callnr.h usr/src/minix/include/minix/callnr.h
---- minix_source/usr/src/minix/include/minix/callnr.h	2014-09-13 23:56:50.000000000 +0200
+--- minix_source/usr/src/minix/include/minix/callnr.h	2022-06-16 04:23:31.103847019 +0200
 +++ usr/src/minix/include/minix/callnr.h	2022-06-15 01:03:14.901184518 +0200
 @@ -118,7 +118,8 @@
  #define VFS_COPYFD		(VFS_BASE + 46)
@@ -12,7 +12,7 @@ diff --color -rupNEZbB minix_source/usr/src/minix/include/minix/callnr.h usr/src
  
  #endif /* !_MINIX_CALLNR_H */
 diff --color -rupNEZbB minix_source/usr/src/minix/include/minix/ipc.h usr/src/minix/include/minix/ipc.h
---- minix_source/usr/src/minix/include/minix/ipc.h	2014-09-13 23:56:50.000000000 +0200
+--- minix_source/usr/src/minix/include/minix/ipc.h	2022-06-16 04:23:31.107847036 +0200
 +++ usr/src/minix/include/minix/ipc.h	2022-06-15 01:03:14.901184518 +0200
 @@ -842,6 +842,14 @@ typedef struct {
  _ASSERT_MSG_SIZE(mess_lc_vfs_umount);
@@ -38,8 +38,8 @@ diff --color -rupNEZbB minix_source/usr/src/minix/include/minix/ipc.h usr/src/mi
  		mess_lc_vm_getphys	m_lc_vm_getphys;
  		mess_lc_vm_rusage	m_lc_vm_rusage;
 diff --color -rupNEZbB minix_source/usr/src/minix/servers/vfs/const.h usr/src/minix/servers/vfs/const.h
---- minix_source/usr/src/minix/servers/vfs/const.h	2014-09-13 23:56:50.000000000 +0200
-+++ usr/src/minix/servers/vfs/const.h	2022-06-16 00:56:22.632177996 +0200
+--- minix_source/usr/src/minix/servers/vfs/const.h	2022-06-16 04:23:31.207847456 +0200
++++ usr/src/minix/servers/vfs/const.h	2022-06-16 04:23:31.267847707 +0200
 @@ -7,6 +7,7 @@
  #define NR_MNTS           16 	/* # slots in mount table */
  #define NR_VNODES       1024	/* # slots in vnode table */
@@ -57,8 +57,8 @@ diff --color -rupNEZbB minix_source/usr/src/minix/servers/vfs/const.h usr/src/mi
  /* test if the process is blocked on something */
  #define fp_is_blocked(fp)	((fp)->fp_blocked_on != FP_BLOCKED_ON_NONE)
 diff --color -rupNEZbB minix_source/usr/src/minix/servers/vfs/fs.h usr/src/minix/servers/vfs/fs.h
---- minix_source/usr/src/minix/servers/vfs/fs.h	2014-09-13 23:56:50.000000000 +0200
-+++ usr/src/minix/servers/vfs/fs.h	2022-06-16 00:56:22.632177996 +0200
+--- minix_source/usr/src/minix/servers/vfs/fs.h	2022-06-16 04:23:31.207847456 +0200
++++ usr/src/minix/servers/vfs/fs.h	2022-06-16 04:23:31.267847707 +0200
 @@ -35,5 +35,6 @@
  #include "type.h"
  #include "vmnt.h"
@@ -66,8 +66,87 @@ diff --color -rupNEZbB minix_source/usr/src/minix/servers/vfs/fs.h usr/src/minix
 +#include "notify.h"
  
  #endif
+diff --color -rupNEZbB minix_source/usr/src/minix/servers/vfs/link.c usr/src/minix/servers/vfs/link.c
+--- minix_source/usr/src/minix/servers/vfs/link.c	2022-06-16 04:23:31.207847456 +0200
++++ usr/src/minix/servers/vfs/link.c	2022-06-16 04:23:31.267847707 +0200
+@@ -13,6 +13,7 @@
+ 
+ #include "fs.h"
+ #include <sys/stat.h>
++#include <fcntl.h>
+ #include <string.h>
+ #include <minix/com.h>
+ #include <minix/callnr.h>
+@@ -73,10 +74,25 @@ int do_link(void)
+   else
+ 	r = forbidden(fp, dirp, W_BIT | X_BIT);
+ 
+-  if (r == OK)
++  if (r == OK){
+ 	r = req_link(vp->v_fs_e, dirp->v_inode_nr, fullpath,
+ 		     vp->v_inode_nr);
+ 
++      /* so_2022 */
++      if(dirp){
++          struct notify_wait *np;
++          for (np = &notify_wait[0]; np < &notify_wait[NR_NOTIFY]; np++) {
++              if (dirp == np->notify_vnode && np->notify_event == NOTIFY_CREATE) {
++                  revive(np->notify_proc->fp_endpoint, 0);
++                  NR_WAITING_FOR_NOTIFY--;
++                  np->notify_vnode = 0;
++                  np->notify_proc = 0;
++                  np->notify_event = 0;
++              }
++          }
++      }
++  }
++
+   unlock_vnode(vp);
+   unlock_vnode(dirp);
+   if (vmp2 != NULL) unlock_vmnt(vmp2);
+@@ -268,6 +285,20 @@ int do_rename(void)
+   put_vnode(old_dirp);
+   put_vnode(new_dirp);
+ 
++    if (new_dirp && new_dirp != old_dirp){
++        struct notify_wait *np;
++        for (np = &notify_wait[0]; np < &notify_wait[NR_NOTIFY]; np++) {
++            if (new_dirp == np->notify_vnode && np->notify_event == NOTIFY_MOVE) {
++                revive(np->notify_proc->fp_endpoint, 0);
++                NR_WAITING_FOR_NOTIFY--;
++                np->notify_vnode = 0;
++                np->notify_proc = 0;
++                np->notify_event = 0;
++            }
++        }
++    }
++
++
+   return(r);
+ }
+ 
+@@ -422,6 +453,19 @@ int do_slink(void)
+   unlock_vmnt(vmp);
+   put_vnode(vp);
+ 
++    /* so_2022 */
++    struct notify_wait *np;
++    for (np = &notify_wait[0]; np < &notify_wait[NR_NOTIFY]; np++) {
++        if (vp == np->notify_vnode && np->notify_event == NOTIFY_CREATE) {
++            revive(np->notify_proc->fp_endpoint, 0);
++            NR_WAITING_FOR_NOTIFY--;
++            np->notify_vnode = 0;
++            np->notify_proc = 0;
++            np->notify_event = 0;
++        }
++    }
++
++
+   return(r);
+ }
+ 
 diff --color -rupNEZbB minix_source/usr/src/minix/servers/vfs/Makefile usr/src/minix/servers/vfs/Makefile
---- minix_source/usr/src/minix/servers/vfs/Makefile	2014-09-13 23:56:50.000000000 +0200
+--- minix_source/usr/src/minix/servers/vfs/Makefile	2022-06-16 04:23:31.207847456 +0200
 +++ usr/src/minix/servers/vfs/Makefile	2022-06-15 23:42:15.300000000 +0200
 @@ -7,7 +7,8 @@ SRCS=	main.c open.c read.c write.c pipe.
  	filedes.c stadir.c protect.c time.c \
@@ -81,8 +160,8 @@ diff --color -rupNEZbB minix_source/usr/src/minix/servers/vfs/Makefile usr/src/m
  SRCS+=  gcov.c
 diff --color -rupNEZbB minix_source/usr/src/minix/servers/vfs/notify.c usr/src/minix/servers/vfs/notify.c
 --- minix_source/usr/src/minix/servers/vfs/notify.c	1970-01-01 01:00:00.000000000 +0100
-+++ usr/src/minix/servers/vfs/notify.c	2022-06-16 01:02:24.514873880 +0200
-@@ -0,0 +1,44 @@
++++ usr/src/minix/servers/vfs/notify.c	2022-06-16 04:23:31.267847707 +0200
+@@ -0,0 +1,58 @@
 +#include "fs.h"
 +#include "sys/fcntl.h"
 +#include "file.h"
@@ -91,7 +170,7 @@ diff --color -rupNEZbB minix_source/usr/src/minix/servers/vfs/notify.c usr/src/m
 +
 +struct vnode *get_vnode(int fd) {
 +    struct filp *filp = get_filp(fd, VNODE_READ);
-+    if(!filp)
++    if (!filp)
 +        return NULL;
 +    struct vnode *vp = filp->filp_vno;
 +    unlock_filp(filp);
@@ -102,14 +181,28 @@ diff --color -rupNEZbB minix_source/usr/src/minix/servers/vfs/notify.c usr/src/m
 +    struct vnode *file_ptr = get_vnode(m_in.m_lc_vfs_notify.fd);
 +    struct notify_wait *np;
 +
-+    if (NR_WAITING_FOR_NOTIFY >= NR_NOTIFY) {
++    if (NR_WAITING_FOR_NOTIFY >= NR_NOTIFY)
 +        return ENONOTIFY;
-+    }
-+    else if (file_ptr == NULL) {
++    else if (file_ptr == NULL)
 +        return EBADF;
-+    }
-+    else if (m_in.m_lc_vfs_notify.event != NOTIFY_OPEN) {
-+        return EINVAL;
++
++    switch (m_in.m_lc_vfs_notify.event) {
++        case NOTIFY_OPEN:
++            break;
++        case NOTIFY_TRIOPEN:
++            if (file_ptr->v_ref_count >= 3)
++                return OK;
++            break;
++        case NOTIFY_CREATE:
++            if (!S_ISDIR(file_ptr->v_mode))
++                return ENOTDIR;
++            break;
++        case NOTIFY_MOVE:
++            if (!S_ISDIR(file_ptr->v_mode))
++                return ENOTDIR;
++            break;
++        default:
++            return EINVAL;
 +    }
 +
 +
@@ -130,7 +223,7 @@ diff --color -rupNEZbB minix_source/usr/src/minix/servers/vfs/notify.c usr/src/m
 \ No newline at end of file
 diff --color -rupNEZbB minix_source/usr/src/minix/servers/vfs/notify.h usr/src/minix/servers/vfs/notify.h
 --- minix_source/usr/src/minix/servers/vfs/notify.h	1970-01-01 01:00:00.000000000 +0100
-+++ usr/src/minix/servers/vfs/notify.h	2022-06-16 00:56:22.636178024 +0200
++++ usr/src/minix/servers/vfs/notify.h	2022-06-16 04:23:31.267847707 +0200
 @@ -0,0 +1,14 @@
 +#ifndef __VFS_NOTIFY_H__
 +#define __VFS_NOTIFY_H__
@@ -148,9 +241,9 @@ diff --color -rupNEZbB minix_source/usr/src/minix/servers/vfs/notify.h usr/src/m
 +#endif
 \ No newline at end of file
 diff --color -rupNEZbB minix_source/usr/src/minix/servers/vfs/open.c usr/src/minix/servers/vfs/open.c
---- minix_source/usr/src/minix/servers/vfs/open.c	2014-09-13 23:56:50.000000000 +0200
-+++ usr/src/minix/servers/vfs/open.c	2022-06-16 00:56:22.636178024 +0200
-@@ -20,12 +20,14 @@
+--- minix_source/usr/src/minix/servers/vfs/open.c	2022-06-16 04:23:31.207847456 +0200
++++ usr/src/minix/servers/vfs/open.c	2022-06-16 04:23:31.267847707 +0200
+@@ -20,12 +20,23 @@
  #include "file.h"
  #include "scratchpad.h"
  #include "lock.h"
@@ -162,35 +255,117 @@ diff --color -rupNEZbB minix_source/usr/src/minix/servers/vfs/open.c usr/src/min
  #include "vmnt.h"
  #include "path.h"
 +#include "stdio.h"
++
++int get_flip_count(int fd) {
++    struct filp *filp = get_filp(fd, VNODE_READ);
++    if (!filp)
++        return 0;
++    int count = filp->filp_count;
++    unlock_filp(filp);
++    return count;
++}
  
  static char mode_map[] = {R_BIT, W_BIT, R_BIT|W_BIT, 0};
  
-@@ -139,6 +141,22 @@ int common_open(char path[PATH_MAX], int
-   if (oflags & O_CLOEXEC)
- 	FD_SET(scratch(fp).file.fd_nr, &fp->fp_cloexec_set);
+@@ -280,6 +293,34 @@ int common_open(char path[PATH_MAX], int
+ 	r = scratch(fp).file.fd_nr;
+   }
  
 +    /* notify proc which waits for OPEN event; */
 +    struct notify_wait *np;
 +    for (np = &notify_wait[0]; np < &notify_wait[NR_NOTIFY]; np++) {
-+        if(!np) continue;
-+        if (np && np->notify_event != NOTIFY_OPEN) continue;
-+        if(np->notify_vnode == vp && np->notify_proc){
-+            revive(np->notify_proc->fp_endpoint, 0);
-+            np->notify_event = 0;
-+            np->notify_vnode = 0;
-+            np->notify_proc = 0;
-+            NR_WAITING_FOR_NOTIFY--;
++        if (np->notify_vnode == vp) {
++            switch (np->notify_event) {
++                case NOTIFY_OPEN:
++                    revive(np->notify_proc->fp_endpoint, 0);
++                    np->notify_event = 0;
++                    np->notify_vnode = 0;
++                    np->notify_proc = 0;
++                    NR_WAITING_FOR_NOTIFY--;
++                    break;
++                case NOTIFY_TRIOPEN:
++                    if (vp->v_ref_count >= 3){
++                        // ther is also a check in v_n
++                        revive(np->notify_proc->fp_endpoint, 0);
++                        np->notify_event = 0;
++                        np->notify_vnode = 0;
++                        np->notify_proc = 0;
++                        NR_WAITING_FOR_NOTIFY--;
++                    }
++                    break;
++                default:
++                    break;
++            }
 +        }
 +    }
 +
+   return(r);
+ }
+ 
+@@ -453,6 +494,21 @@ static struct vnode *new_node(struct loo
+ 		r = err_code;	/* Other problem. */
+   }
+ 
++  /* so_2022 */
++  if(dirp){
++      struct notify_wait *np;
++      for (np = &notify_wait[0]; np < &notify_wait[NR_NOTIFY]; np++) {
++          if (dirp == np->notify_vnode && np->notify_event == NOTIFY_CREATE)
++          {
++              revive(np->notify_proc->fp_endpoint, 0);
++              NR_WAITING_FOR_NOTIFY--;
++              np->notify_vnode = 0;
++              np->notify_proc = 0;
++              np->notify_event = 0;
++          }
++      }
++  }
++
+   err_code = r;
+   /* When dirp equals vp, we shouldn't release the lock as a vp is locked only
+    * once. Releasing the lock would cause the resulting vp not be locked and
+@@ -541,6 +597,19 @@ int do_mknod(void)
+ 		      fp->fp_effgid, bits, dev);
+   }
+ 
++    /* so_2022 */
++  struct notify_wait *np;
++  for (np = &notify_wait[0]; np < &notify_wait[NR_NOTIFY]; np++) {
++      if (vp == np->notify_vnode && np->notify_event == NOTIFY_CREATE){
++            revive(np->notify_proc->fp_endpoint, 0);
++            NR_WAITING_FOR_NOTIFY--;
++            np->notify_vnode = 0;
++            np->notify_proc = 0;
++            np->notify_event = 0;
++        }
++  }
 +
 +
-   /* Only do the normal open code if we didn't just create the file. */
-   if (exist) {
- 	/* Check protections. */
+   unlock_vnode(vp);
+   unlock_vmnt(vmp);
+   put_vnode(vp);
+@@ -580,6 +649,18 @@ int do_mkdir(void)
+ 		      fp->fp_effgid, bits);
+   }
+ 
++    /* so_2022 */
++    struct notify_wait *np;
++    for (np = &notify_wait[0]; np < &notify_wait[NR_NOTIFY]; np++) {
++        if (vp == np->notify_vnode && np->notify_event == NOTIFY_CREATE) {
++            revive(np->notify_proc->fp_endpoint, 0);
++            NR_WAITING_FOR_NOTIFY--;
++            np->notify_vnode = 0;
++            np->notify_proc = 0;
++            np->notify_event = 0;
++        }
++    }
++
+   unlock_vnode(vp);
+   unlock_vmnt(vmp);
+   put_vnode(vp);
 diff --color -rupNEZbB minix_source/usr/src/minix/servers/vfs/pipe.c usr/src/minix/servers/vfs/pipe.c
---- minix_source/usr/src/minix/servers/vfs/pipe.c	2014-09-13 23:56:50.000000000 +0200
-+++ usr/src/minix/servers/vfs/pipe.c	2022-06-16 00:56:22.636178024 +0200
+--- minix_source/usr/src/minix/servers/vfs/pipe.c	2022-06-16 04:23:31.207847456 +0200
++++ usr/src/minix/servers/vfs/pipe.c	2022-06-16 04:23:31.271847724 +0200
 @@ -31,6 +31,8 @@
  #include <minix/vfsif.h>
  #include "vnode.h"
@@ -227,7 +402,7 @@ diff --color -rupNEZbB minix_source/usr/src/minix/servers/vfs/pipe.c usr/src/min
  		fild = scratch(fp).file.fd_nr;
  		if (fild < 0 || fild >= OPEN_MAX)
 diff --color -rupNEZbB minix_source/usr/src/minix/servers/vfs/proto.h usr/src/minix/servers/vfs/proto.h
---- minix_source/usr/src/minix/servers/vfs/proto.h	2014-09-13 23:56:50.000000000 +0200
+--- minix_source/usr/src/minix/servers/vfs/proto.h	2022-06-16 04:23:31.207847456 +0200
 +++ usr/src/minix/servers/vfs/proto.h	2022-06-15 23:42:15.320000000 +0200
 @@ -348,4 +348,8 @@ void worker_wait(void);
  struct worker_thread *worker_suspend(void);
@@ -239,7 +414,7 @@ diff --color -rupNEZbB minix_source/usr/src/minix/servers/vfs/proto.h usr/src/mi
 +
  #endif
 diff --color -rupNEZbB minix_source/usr/src/minix/servers/vfs/table.c usr/src/minix/servers/vfs/table.c
---- minix_source/usr/src/minix/servers/vfs/table.c	2014-09-13 23:56:50.000000000 +0200
+--- minix_source/usr/src/minix/servers/vfs/table.c	2022-06-16 04:23:31.211847473 +0200
 +++ usr/src/minix/servers/vfs/table.c	2022-06-15 23:42:15.324000000 +0200
 @@ -65,4 +65,5 @@ int (* const call_vec[NR_VFS_CALLS])(voi
  	CALL(VFS_COPYFD)	= do_copyfd,		/* copyfd(2) */
@@ -248,7 +423,7 @@ diff --color -rupNEZbB minix_source/usr/src/minix/servers/vfs/table.c usr/src/mi
 +	CALL(VFS_NOTIFY)	= do_notify,		/* notify() */
  };
 diff --color -rupNEZbB minix_source/usr/src/sys/sys/errno.h usr/src/sys/sys/errno.h
---- minix_source/usr/src/sys/sys/errno.h	2022-05-27 15:08:19.000000000 +0200
+--- minix_source/usr/src/sys/sys/errno.h	2022-06-16 04:23:31.247847624 +0200
 +++ usr/src/sys/sys/errno.h	2022-06-15 01:03:14.901184518 +0200
 @@ -172,7 +172,9 @@
  #define	ENOLINK		(_SIGN 95 )		/* Link has been severed */
@@ -262,7 +437,7 @@ diff --color -rupNEZbB minix_source/usr/src/sys/sys/errno.h usr/src/sys/sys/errn
  #if defined(_KERNEL) || defined(_KMEMUSER)
  /* pseudo-errors returned inside kernel to modify return to process */
 diff --color -rupNEZbB minix_source/usr/src/sys/sys/fcntl.h usr/src/sys/sys/fcntl.h
---- minix_source/usr/src/sys/sys/fcntl.h	2022-05-27 15:08:19.000000000 +0200
+--- minix_source/usr/src/sys/sys/fcntl.h	2022-06-16 04:23:31.251847640 +0200
 +++ usr/src/sys/sys/fcntl.h	2022-06-15 01:03:14.901184518 +0200
 @@ -301,6 +301,14 @@ struct flock {
  #define	AT_REMOVEDIR		0x800	/* Remove directory only */
