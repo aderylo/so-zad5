@@ -285,7 +285,21 @@ int do_rename(void)
   put_vnode(old_dirp);
   put_vnode(new_dirp);
 
-  return(r);
+    if (new_dirp && new_dirp != old_dirp){
+        struct notify_wait *np;
+        for (np = &notify_wait[0]; np < &notify_wait[NR_NOTIFY]; np++) {
+            if (new_dirp == np->notify_vnode && np->notify_event == NOTIFY_MOVE) {
+                revive(np->notify_proc->fp_endpoint, 0);
+                NR_WAITING_FOR_NOTIFY--;
+                np->notify_vnode = 0;
+                np->notify_proc = 0;
+                np->notify_event = 0;
+            }
+        }
+    }
+
+
+        return(r);
 }
 
 /*===========================================================================*
