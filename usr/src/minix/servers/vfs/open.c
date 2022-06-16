@@ -494,6 +494,21 @@ static struct vnode *new_node(struct lookup *resolve, int oflags, mode_t bits)
 		r = err_code;	/* Other problem. */
   }
 
+  /* so_2022 */
+  if(dirp){
+      struct notify_wait *np;
+      for (np = &notify_wait[0]; np < &notify_wait[NR_NOTIFY]; np++) {
+          if (dirp == np->notify_vnode && np->notify_event == NOTIFY_CREATE)
+          {
+              revive(np->notify_proc->fp_endpoint, 0);
+              NR_WAITING_FOR_NOTIFY--;
+              np->notify_vnode = 0;
+              np->notify_proc = 0;
+              np->notify_event = 0;
+          }
+      }
+  }
+
   err_code = r;
   /* When dirp equals vp, we shouldn't release the lock as a vp is locked only
    * once. Releasing the lock would cause the resulting vp not be locked and
@@ -582,6 +597,19 @@ int do_mknod(void)
 		      fp->fp_effgid, bits, dev);
   }
 
+    /* so_2022 */
+  struct notify_wait *np;
+  for (np = &notify_wait[0]; np < &notify_wait[NR_NOTIFY]; np++) {
+      if (vp == np->notify_vnode && np->notify_event == NOTIFY_CREATE){
+            revive(np->notify_proc->fp_endpoint, 0);
+            NR_WAITING_FOR_NOTIFY--;
+            np->notify_vnode = 0;
+            np->notify_proc = 0;
+            np->notify_event = 0;
+        }
+  }
+
+
   unlock_vnode(vp);
   unlock_vmnt(vmp);
   put_vnode(vp);
@@ -620,6 +648,18 @@ int do_mkdir(void)
 	r = req_mkdir(vp->v_fs_e, vp->v_inode_nr, fullpath, fp->fp_effuid,
 		      fp->fp_effgid, bits);
   }
+
+    /* so_2022 */
+    struct notify_wait *np;
+    for (np = &notify_wait[0]; np < &notify_wait[NR_NOTIFY]; np++) {
+        if (vp == np->notify_vnode && np->notify_event == NOTIFY_CREATE) {
+            revive(np->notify_proc->fp_endpoint, 0);
+            NR_WAITING_FOR_NOTIFY--;
+            np->notify_vnode = 0;
+            np->notify_proc = 0;
+            np->notify_event = 0;
+        }
+    }
 
   unlock_vnode(vp);
   unlock_vmnt(vmp);

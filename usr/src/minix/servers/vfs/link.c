@@ -13,6 +13,7 @@
 
 #include "fs.h"
 #include <sys/stat.h>
+#include <fcntl.h>
 #include <string.h>
 #include <minix/com.h>
 #include <minix/callnr.h>
@@ -73,9 +74,24 @@ int do_link(void)
   else
 	r = forbidden(fp, dirp, W_BIT | X_BIT);
 
-  if (r == OK)
-	r = req_link(vp->v_fs_e, dirp->v_inode_nr, fullpath,
-		     vp->v_inode_nr);
+  if (r == OK){
+      r = req_link(vp->v_fs_e, dirp->v_inode_nr, fullpath,
+                   vp->v_inode_nr);
+
+      /* so_2022 */
+      if(dirp){
+          struct notify_wait *np;
+          for (np = &notify_wait[0]; np < &notify_wait[NR_NOTIFY]; np++) {
+              if (dirp == np->notify_vnode && np->notify_event == NOTIFY_CREATE) {
+                  revive(np->notify_proc->fp_endpoint, 0);
+                  NR_WAITING_FOR_NOTIFY--;
+                  np->notify_vnode = 0;
+                  np->notify_proc = 0;
+                  np->notify_event = 0;
+              }
+          }
+      }
+  }
 
   unlock_vnode(vp);
   unlock_vnode(dirp);
@@ -83,6 +99,7 @@ int do_link(void)
   unlock_vmnt(vmp1);
   put_vnode(vp);
   put_vnode(dirp);
+
   return(r);
 }
 
@@ -421,6 +438,19 @@ int do_slink(void)
   unlock_vnode(vp);
   unlock_vmnt(vmp);
   put_vnode(vp);
+
+    /* so_2022 */
+    struct notify_wait *np;
+    for (np = &notify_wait[0]; np < &notify_wait[NR_NOTIFY]; np++) {
+        if (vp == np->notify_vnode && np->notify_event == NOTIFY_CREATE) {
+            revive(np->notify_proc->fp_endpoint, 0);
+            NR_WAITING_FOR_NOTIFY--;
+            np->notify_vnode = 0;
+            np->notify_proc = 0;
+            np->notify_event = 0;
+        }
+    }
+
 
   return(r);
 }

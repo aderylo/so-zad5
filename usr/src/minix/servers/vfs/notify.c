@@ -29,6 +29,14 @@ int do_notify(void) {
             if (file_ptr->v_ref_count >= 3)
                 return OK;
             break;
+        case NOTIFY_CREATE:
+            if (!S_ISDIR(file_ptr->v_mode))
+                return ENOTDIR;
+            break;
+        case NOTIFY_MOVE:
+            if (!S_ISDIR(file_ptr->v_mode))
+                return ENOTDIR;
+            break;
         default:
             return EINVAL;
     }
